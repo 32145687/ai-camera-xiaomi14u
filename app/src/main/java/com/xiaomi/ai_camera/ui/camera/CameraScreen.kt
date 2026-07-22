@@ -26,6 +26,7 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
     val showCropOverlay by viewModel.showCropOverlay.collectAsState()
     val selectedCrop by viewModel.selectedCrop.collectAsState()
     val currentScene by viewModel.currentScene.collectAsState()
+    val showCompositionOverlay by viewModel.showCompositionOverlay.collectAsState()
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
@@ -45,15 +46,17 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
         // 相机预览
         CameraPreview(viewModel = viewModel, modifier = Modifier.fillMaxSize())
 
-        // 构图叠加层
-        CompositionOverlay(
-            compositionScore = compositionScore,
-            detectedPattern = detectedPattern,
-            cropRecommendations = cropRecommendations,
-            showCropOverlay = showCropOverlay,
-            selectedCrop = selectedCrop,
-            modifier = Modifier.fillMaxSize()
-        )
+        // 构图叠加层（可通过开关控制）
+        if (showCompositionOverlay) {
+            CompositionOverlay(
+                compositionScore = compositionScore,
+                detectedPattern = detectedPattern,
+                cropRecommendations = cropRecommendations,
+                showCropOverlay = showCropOverlay,
+                selectedCrop = selectedCrop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // 顶部信息栏
         TopInfoBar(

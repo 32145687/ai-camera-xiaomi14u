@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaomi.ai_camera.ai.CompositionAnalyzer
@@ -37,9 +36,15 @@ fun CameraControls(
     val angleRecommendations by viewModel.angleRecommendations.collectAsState()
     val showCropOverlay by viewModel.showCropOverlay.collectAsState()
     val availableCameras by viewModel.availableCameras.collectAsState()
+    val showCompositionOverlay by viewModel.showCompositionOverlay.collectAsState()
 
-    // 焦段选择
-    val focalLengths = listOf("超广角", "主摄", "长焦", "潜望")
+    // 焦段列表
+    val allFocalLengths = listOf("超广角", "主摄", "长焦", "潜望")
+    // 只显示可用的焦段
+    val availableFocalLengths = remember(availableCameras) {
+        val availableNames = availableCameras.map { it.displayName }
+        allFocalLengths.filter { type -> availableNames.any { it.contains(type) } }
+    }
 
     Column(
         modifier = modifier
@@ -58,13 +63,11 @@ fun CameraControls(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // 场景信息
             Column(modifier = Modifier.weight(1f)) {
                 Text(sceneConfig.description, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Text("f/${sceneConfig.aperture} | ISO ${sceneConfig.iso}", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
             }
 
-            // 拍摄评分
             if (bestShotScore > 0) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("抓拍", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
@@ -104,32 +107,33 @@ fun CameraControls(
 
         Spacer(Modifier.height(12.dp))
 
-        // === 焦段选择（四摄快速切换） ===
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            focalLengths.forEach { type ->
-                val isActive = viewModel.cameraManager.getCameraDisplayName(currentCameraId).contains(type)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isActive) Color(0xFF1976D2) else Color.White.copy(alpha = 0.15f))
-                        .clickable { viewModel.switchToFocalLength(type) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = type,
-                        color = if (isActive) Color.White else Color.White.copy(alpha = 0.7f),
-                        fontSize = 11.sp,
-                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                    )
+        // === 焦段选择（只显示可用的） ===
+        if (availableFocalLengths.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                availableFocalLengths.forEach { type ->
+                    val isActive = viewModel.cameraManager.getCameraDisplayName(currentCameraId).contains(type)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isActive) Color(0xFF1976D2) else Color.White.copy(alpha = 0.15f))
+                            .clickable { viewModel.switchToFocalLength(type) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = type,
+                            color = if (isActive) Color.White else Color.White.copy(alpha = 0.7f),
+                            fontSize = 11.sp,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 }
             }
+            Spacer(Modifier.height(8.dp))
         }
-
-        Spacer(Modifier.height(8.dp))
 
         // === 主控制行 ===
         Row(
@@ -137,12 +141,12 @@ fun CameraControls(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 裁剪建议开关
+            // 构图线开关
             ControlButton(
-                icon = Icons.Filled.Crop,
-                label = "裁剪",
-                isActive = showCropOverlay,
-                onClick = { viewModel.toggleCropOverlay() }
+                icon = Icons.Filled.GridOn,
+                label = "构图",
+                isActive = showCompositionOverlay,
+                onClick = { viewModel.toggleCompositionOverlay() }
             )
 
             // 拍照按钮
@@ -183,9 +187,13 @@ fun CameraControls(
                 isActive = autoCapture,
                 onClick = { viewModel.toggleAutoCapture() }
             )
-            ControlButton(icon = Icons.Filled.ScreenRotation, label = "水平", onClick = {})
-            ControlButton(icon = Icons.Filled.HdrOn, label = "HDR", onClick = {})
-            ControlButton(icon = Icons.Filled.FlashAuto, label = "自动", onClick = {})
+            ControlButton(
+                icon = Icons.Filled.Crop,
+                label = "裁剪",
+                isActive = showCropOverlay,
+                onClick = { viewModel.toggleCropOverlay() }
+            )
+            ControlButton(icon = Icons.Filled.FlashAuto, label = "闪光", onClick = {})
         }
 
         // === 裁剪建议列表 ===
@@ -204,7 +212,6 @@ private fun CompositionScoreBar(score: CompositionAnalyzer.CompositionScore) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 等级标签
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
@@ -222,7 +229,6 @@ private fun CompositionScoreBar(score: CompositionAnalyzer.CompositionScore) {
                 Text("${score.level.emoji} ${score.level.label}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
 
-            // 总分
             Text(
                 "构图 ${String.format("%.0f", score.overallScore)}分",
                 color = Color.White,
@@ -233,7 +239,6 @@ private fun CompositionScoreBar(score: CompositionAnalyzer.CompositionScore) {
 
         Spacer(Modifier.height(4.dp))
 
-        // 详细分数条
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             ScoreChip("三分", score.ruleOfThirdsScore)
             ScoreChip("对称", score.symmetryScore)

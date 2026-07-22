@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.PointF
 import android.graphics.RectF
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.xiaomi.ai_camera.ai.*
@@ -17,15 +18,19 @@ import kotlinx.coroutines.withContext
 
 class CameraViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        private const val TAG = "CameraViewModel"
+    }
+
     val cameraManager = XiaomiCameraManager(application)
     private val compositionAnalyzer = CompositionAnalyzer(application)
     private val sceneAnalyzer = SceneAnalyzer()
     private val faceDetector = FaceDetector()
     private val motionTracker = MotionTracker()
 
-    // 防止并发分析
     @Volatile private var isAnalyzing = false
     private var heavyAnalysisCounter = 0
+    private var previousSmallBitmap: Bitmap? = null
 
     // 构图评分
     private val _compositionScore = MutableStateFlow(
@@ -81,6 +86,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _uiState = MutableStateFlow(CameraUiState())
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
+    // 构图辅助线开关
+    private val _showCompositionOverlay = MutableStateFlow(true)
+    val showCompositionOverlay: StateFlow<Boolean> = _showCompositionOverlay.asStateFlow()
+
     // 是否显示裁剪建议
     private val _showCropOverlay = MutableStateFlow(false)
     val showCropOverlay: StateFlow<Boolean> = _showCropOverlay.asStateFlow()
@@ -108,12 +117,13 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 _uiState.value = _uiState.value.copy(isCameraReady = false)
             }
             override fun onCameraError(error: String) {
+                Log.e(TAG, error)
                 _uiState.value = _uiState.value.copy(errorMessage = error)
             }
             override fun onPhotoSaved(filePath: String) {
                 _lastPhotoPath.value = filePath
                 _isTakingPhoto.value = false
-                _uiState.value = _uiState.value.copy(errorMessage = "照片已保存到相册")
+                _uiState.value = _uiState.value.copy(errorMessage = "照片已保存")
             }
         })
     }
@@ -136,13 +146,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch {
             try {
-                // 在后台创建缩小的bitmap进行分析
+                // 在后台创建缩小的bitmap
                 val smallBitmap = withContext(Dispatchers.Default) {
-                    val w = bitmap.width.coerceAtMost(160)
-                    val h = bitmap.height.coerceAtMost(120)
+                    val w = bitmap.width.coerceAtMost(320)
+                    val h = bitmap.height.coerceAtMost(240)
                     try {
                         Bitmap.createScaledBitmap(bitmap, w, h, true)
                     } catch (e: Exception) {
+                        Log.e(TAG, "Scale bitmap failed: ${e.message}")
                         null
                     }
                 }
@@ -163,15 +174,21 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                         _detectedPattern.value = compositionAnalyzer.detectCompositionPattern(smallBitmap)
                     }
 
-                    // 每5次做一次重型分析
+                    // 每3次做一次重型分析（场景识别+人脸检测）
                     heavyAnalysisCounter++
-                    if (heavyAnalysisCounter >= 5) {
+                    if (heavyAnalysisCounter >= 3) {
                         heavyAnalysisCounter = 0
                         withContext(Dispatchers.Default) {
+                            // 场景识别
                             val scene = sceneAnalyzer.analyzeScene(smallBitmap)
                             _currentScene.value = scene
-                            _sceneConfig.value = sceneAnalyzer.getSceneConfig(scene)
+                            val config = sceneAnalyzer.getSceneConfig(scene)
+                            _sceneConfig.value = config
 
+                            // 【关键修复】将场景参数应用到相机
+                            cameraManager.applySceneConfig(config)
+
+                            // 人脸检测
                             val faces = faceDetector.detectFaces(smallBitmap)
                             _faceResults.value = faces
                             _bestShotScore.value = faceDetector.getBestShotScore(faces)
@@ -182,10 +199,16 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
 
-                    // 运动追踪
+                    // 【关键修复】运动追踪 - 传入上一帧
+                    val prevBitmap = previousSmallBitmap
                     withContext(Dispatchers.Default) {
-                        _motionState.value = motionTracker.analyzeFrame(smallBitmap, null)
+                        _motionState.value = motionTracker.analyzeFrame(smallBitmap, prevBitmap)
                     }
+                    // 缓存当前帧用于下次比较
+                    previousSmallBitmap?.recycle()
+                    previousSmallBitmap = try {
+                        smallBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                    } catch (e: Exception) { null }
 
                     // 裁剪建议
                     if (_showCropOverlay.value) {
@@ -199,11 +222,16 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                         try { smallBitmap.recycle() } catch (_: Exception) {}
                     }
                 }
-            } catch (_: Exception) {}
-            finally {
+            } catch (e: Exception) {
+                Log.e(TAG, "quickAnalyze failed: ${e.message}")
+            } finally {
                 isAnalyzing = false
             }
         }
+    }
+
+    fun toggleCompositionOverlay() {
+        _showCompositionOverlay.value = !_showCompositionOverlay.value
     }
 
     fun toggleCropOverlay() {
@@ -249,6 +277,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         cameraManager.closeCamera()
         cameraManager.stopBackgroundThread()
         compositionAnalyzer.close()
+        previousSmallBitmap?.recycle()
+        previousSmallBitmap = null
     }
 }
 

@@ -101,14 +101,9 @@ class CompositionAnalyzer(private val context: Context) {
 
     /**
      * 分析构图 - 主入口
+     * 节流由调用方（CameraViewModel.quickAnalyze）控制
      */
     fun analyzeComposition(bitmap: Bitmap): CompositionScore {
-        val now = System.currentTimeMillis()
-        if (now - lastAnalysisTime < analysisInterval) {
-            return getDefaultScore()
-        }
-        lastAnalysisTime = now
-
         // 尝试使用深度学习模型
         val modelScore = analyzeWithModel(bitmap)
         if (modelScore != null) return modelScore
@@ -666,9 +661,9 @@ class CompositionAnalyzer(private val context: Context) {
         val thirds = analyzeRuleOfThirds(bitmap)
 
         return when {
-            symmetry > 75 -> CompositionPattern.SYMMETRY
-            thirds > 70 -> CompositionPattern.RULE_OF_THIRDS
-            balance > 65 -> CompositionPattern.CENTER
+            symmetry > 55 -> CompositionPattern.SYMMETRY
+            balance > 50 -> CompositionPattern.CENTER
+            thirds > 45 -> CompositionPattern.RULE_OF_THIRDS
             else -> CompositionPattern.RULE_OF_THIRDS
         }
     }
