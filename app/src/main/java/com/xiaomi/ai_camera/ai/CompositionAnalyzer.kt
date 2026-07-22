@@ -329,8 +329,8 @@ class CompositionAnalyzer(private val context: Context) {
             }
         }
 
-        val hBalance = 1f - abs(leftWeight - rightWeight) / max(leftWeight + rightWeight, 1f)
-        val vBalance = 1f - abs(topWeight - bottomWeight) / max(topWeight + bottomWeight, 1f)
+        val hBalance = 1f - abs(leftWeight - rightWeight) / maxOf(leftWeight + rightWeight, 1f)
+        val vBalance = 1f - abs(topWeight - bottomWeight) / maxOf(topWeight + bottomWeight, 1f)
 
         return ((hBalance + vBalance) / 2 * 100).coerceIn(0f, 100f)
     }
@@ -367,7 +367,7 @@ class CompositionAnalyzer(private val context: Context) {
             }
         }
 
-        val edgeRatio = (horizontalEdges + verticalEdges + diagonalEdges).toFloat() / max(totalPixels, 1)
+        val edgeRatio = (horizontalEdges + verticalEdges + diagonalEdges).toFloat() / maxOf(totalPixels, 1)
         val lineScore = when {
             edgeRatio > 0.1f && edgeRatio < 0.4f -> 80f // 适度的线条
             edgeRatio > 0.05f -> 60f
@@ -399,8 +399,8 @@ class CompositionAnalyzer(private val context: Context) {
         }
 
         val halfCount = count / 2
-        topBrightness /= max(halfCount, 1)
-        bottomBrightness /= max(halfCount, 1)
+        topBrightness /= maxOf(halfCount, 1)
+        bottomBrightness /= maxOf(halfCount, 1)
 
         // 天空通常较亮，地面较暗，有一定差异表示深度
         val depthDiff = abs(topBrightness - bottomBrightness)
@@ -423,14 +423,14 @@ class CompositionAnalyzer(private val context: Context) {
                 val pixel = bitmap.getPixel(x, y)
                 val hue = getHue(pixel)
                 val bin = (hue / 360f * colorBins).toInt().coerceIn(0, colorBins - 1)
-                hueHistogram[bin]++
+                hueHistogram[bin] = hueHistogram[bin] + 1f
                 totalPixels++
             }
         }
 
         // 归一化
         for (i in hueHistogram.indices) {
-            hueHistogram[i] /= max(totalPixels, 1)
+            hueHistogram[i] = hueHistogram[i] / maxOf(totalPixels, 1)
         }
 
         // 计算色彩集中度（和谐的色彩通常集中在少数几个色相）
@@ -440,7 +440,7 @@ class CompositionAnalyzer(private val context: Context) {
         // 互补色检测
         var complementaryScore = 0f
         for (i in 0 until colorBins / 2) {
-            complementaryScore += min(hueHistogram[i], hueHistogram[i + colorBins / 2])
+            complementaryScore += minOf(hueHistogram[i], hueHistogram[i + colorBins / 2])
         }
 
         return ((top3Concentration * 60 + complementaryScore * 40) * 100).coerceIn(0f, 100f)
@@ -685,7 +685,7 @@ class CompositionAnalyzer(private val context: Context) {
         val r = (pixel shr 16 and 0xFF) / 255f
         val g = (pixel shr 8 and 0xFF) / 255f
         val b = (pixel and 0xFF) / 255f
-        val saturation = max(r, g, b) - min(r, g, b)
+        val saturation = maxOf(r, g, b) - minOf(r, g, b)
         val brightness = (r + g + b) / 3f
         return saturation * 0.6f + brightness * 0.4f
     }

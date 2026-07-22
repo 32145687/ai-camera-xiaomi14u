@@ -22,7 +22,7 @@ fun CameraPreview(viewModel: CameraViewModel, modifier: Modifier = Modifier) {
                         viewModel.setPreviewSurface(previewSurface)
                         viewModel.cameraManager.startBackgroundThread()
                         viewModel.cameraManager.openCamera(
-                            com.xiaomi.ai_camera.camera.CameraManager.CAMERA_MAIN,
+                            com.xiaomi.ai_camera.camera.XiaomiCameraManager.CAMERA_MAIN,
                             previewSurface
                         )
                     }

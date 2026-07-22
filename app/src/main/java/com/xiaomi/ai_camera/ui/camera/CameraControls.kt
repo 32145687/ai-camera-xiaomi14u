@@ -147,7 +147,7 @@ fun CameraControls(
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             ControlButton(
-                icon = if (autoCapture) Icons.Filled.AutoAwesome else Icons.Filled.AutoAwesomeOutlined,
+                icon = Icons.Filled.AutoAwesome,
                 label = "AI抓拍",
                 isActive = autoCapture,
                 onClick = { viewModel.toggleAutoCapture() }

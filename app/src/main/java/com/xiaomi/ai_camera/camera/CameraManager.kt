@@ -11,9 +11,9 @@ import android.view.Surface
  * 小米14U专用Camera2管理器
  * 支持四摄切换、无级可变光圈控制
  */
-class CameraManager(private val context: Context) {
+class XiaomiCameraManager(private val context: Context) {
 
-    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
     private var cameraThread: HandlerThread? = null

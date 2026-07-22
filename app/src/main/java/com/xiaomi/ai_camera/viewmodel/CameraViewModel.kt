@@ -7,7 +7,7 @@ import android.graphics.RectF
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.xiaomi.ai_camera.ai.*
-import com.xiaomi.ai_camera.camera.CameraManager
+import com.xiaomi.ai_camera.camera.XiaomiCameraManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 
 class CameraViewModel(application: Application) : AndroidViewModel(application) {
 
-    val cameraManager = CameraManager(application)
+    val cameraManager = XiaomiCameraManager(application)
     private val compositionAnalyzer = CompositionAnalyzer(application)
     private val sceneAnalyzer = SceneAnalyzer()
     private val faceDetector = FaceDetector()
@@ -64,7 +64,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     val autoCaptureEnabled: StateFlow<Boolean> = _autoCaptureEnabled.asStateFlow()
 
     // 当前相机ID
-    private val _currentCameraId = MutableStateFlow(CameraManager.CAMERA_MAIN)
+    private val _currentCameraId = MutableStateFlow(XiaomiCameraManager.CAMERA_MAIN)
     val currentCameraId: StateFlow<String> = _currentCameraId.asStateFlow()
 
     // UI状态
@@ -80,7 +80,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     val selectedCrop: StateFlow<RectF?> = _selectedCrop.asStateFlow()
 
     init {
-        cameraManager.setCallback(object : CameraManager.CameraCallback {
+        cameraManager.setCallback(object : XiaomiCameraManager.CameraCallback {
             override fun onCameraOpened(cameraId: String) {
                 _currentCameraId.value = cameraId
                 _uiState.value = _uiState.value.copy(isCameraReady = true)
