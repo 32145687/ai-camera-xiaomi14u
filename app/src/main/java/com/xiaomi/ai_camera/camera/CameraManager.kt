@@ -42,8 +42,7 @@ class XiaomiCameraManager(private val context: Context) {
         val focalLengths: FloatArray,
         val apertures: FloatArray,
         val fovDegrees: Float,
-        val displayName: String,
-        val isLogicalMultiCamera: Boolean = false
+        val displayName: String
     )
 
     private val availableCameras = mutableListOf<CameraInfo>()
@@ -95,27 +94,6 @@ class XiaomiCameraManager(private val context: Context) {
 
                     val info = CameraInfo(id, facing, focalLengths, apertures, fov, name)
                     availableCameras.add(info)
-
-                    // 检查逻辑多摄的物理子相机
-                    try {
-                        val physicalIds = chars.get(CameraCharacteristics.LOGICAL_MULTI_CAMERA_PHYSICAL_IDS)
-                        if (physicalIds != null && physicalIds.size > 1) {
-                            Log.d(TAG, "Logical multi-camera $id has ${physicalIds.size} physical cameras")
-                            for (physId in physicalIds) {
-                                try {
-                                    val physChars = cameraManager.getCameraCharacteristics(physId)
-                                    val physFocal = physChars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf()
-                                    val physApertures = physChars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) ?: floatArrayOf()
-                                    val physFov = calculateFov(physChars, physFocal)
-                                    val physName = identifyCamera(physId, facing, physFocal, physFov)
-                                    Log.d(TAG, "Physical camera $physId: focal=${physFocal.joinToString()}, name=$physName")
-                                    availableCameras.add(CameraInfo(physId, facing, physFocal, physApertures, physFov, physName, true))
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "Failed to read physical camera $physId: ${e.message}")
-                                }
-                            }
-                        }
-                    } catch (_: Exception) { }
                 } catch (e: CameraAccessException) {
                     Log.e(TAG, "Failed to read camera $id: ${e.message}")
                 }
@@ -458,7 +436,7 @@ class XiaomiCameraManager(private val context: Context) {
         val cameras = getAvailableCameras()
         val target = cameras.find { it.displayName.contains(focalLengthType) }
         if (target == null) {
-            callback?.onCameraError("未找到$focalLengthType相机")
+            callback?.onCameraError("未找到 ${focalLengthType} 相机")
             return
         }
         if (target.id == currentCameraId) return
