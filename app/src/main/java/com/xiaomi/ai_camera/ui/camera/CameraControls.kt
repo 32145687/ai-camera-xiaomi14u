@@ -36,6 +36,10 @@ fun CameraControls(
     val cropRecommendations by viewModel.cropRecommendations.collectAsState()
     val angleRecommendations by viewModel.angleRecommendations.collectAsState()
     val showCropOverlay by viewModel.showCropOverlay.collectAsState()
+    val availableCameras by viewModel.availableCameras.collectAsState()
+
+    // 焦段选择
+    val focalLengths = listOf("超广角", "主摄", "长焦", "潜望")
 
     Column(
         modifier = modifier
@@ -100,6 +104,33 @@ fun CameraControls(
 
         Spacer(Modifier.height(12.dp))
 
+        // === 焦段选择（四摄快速切换） ===
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            focalLengths.forEach { type ->
+                val isActive = viewModel.cameraManager.getCameraDisplayName(currentCameraId).contains(type)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isActive) Color(0xFF1976D2) else Color.White.copy(alpha = 0.15f))
+                        .clickable { viewModel.switchToFocalLength(type) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = type,
+                        color = if (isActive) Color.White else Color.White.copy(alpha = 0.7f),
+                        fontSize = 11.sp,
+                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
         // === 主控制行 ===
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -109,7 +140,7 @@ fun CameraControls(
             // 裁剪建议开关
             ControlButton(
                 icon = Icons.Filled.Crop,
-                label = if (showCropOverlay) "裁剪" else "裁剪",
+                label = "裁剪",
                 isActive = showCropOverlay,
                 onClick = { viewModel.toggleCropOverlay() }
             )
@@ -131,10 +162,10 @@ fun CameraControls(
                 )
             }
 
-            // 切换相机
+            // 相机信息
             ControlButton(
-                icon = Icons.Filled.Cameraswitch,
-                label = viewModel.cameraManager.getCameraName(currentCameraId),
+                icon = Icons.Filled.CameraAlt,
+                label = viewModel.cameraManager.getCameraDisplayName(currentCameraId),
                 onClick = { viewModel.switchCamera() }
             )
         }

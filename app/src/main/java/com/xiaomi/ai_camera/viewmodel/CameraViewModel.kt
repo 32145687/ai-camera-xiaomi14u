@@ -25,7 +25,6 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     // 防止并发分析
     @Volatile private var isAnalyzing = false
-    // 重型分析计数器 - 每5次轻量分析做1次重型
     private var heavyAnalysisCounter = 0
 
     // 构图评分
@@ -71,8 +70,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     val autoCaptureEnabled: StateFlow<Boolean> = _autoCaptureEnabled.asStateFlow()
 
     // 当前相机ID
-    private val _currentCameraId = MutableStateFlow(XiaomiCameraManager.CAMERA_MAIN)
+    private val _currentCameraId = MutableStateFlow("")
     val currentCameraId: StateFlow<String> = _currentCameraId.asStateFlow()
+
+    // 可用相机列表
+    private val _availableCameras = MutableStateFlow<List<XiaomiCameraManager.CameraInfo>>(emptyList())
+    val availableCameras: StateFlow<List<XiaomiCameraManager.CameraInfo>> = _availableCameras.asStateFlow()
 
     // UI状态
     private val _uiState = MutableStateFlow(CameraUiState())
@@ -91,6 +94,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             override fun onCameraOpened(cameraId: String) {
                 _currentCameraId.value = cameraId
                 _uiState.value = _uiState.value.copy(isCameraReady = true)
+                _availableCameras.value = cameraManager.getAvailableCameras()
             }
             override fun onCameraClosed() {
                 _uiState.value = _uiState.value.copy(isCameraReady = false)
@@ -102,8 +106,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * 快速分析 - 每10帧调用一次，bitmap已缩小到160x120
-     * 只做构图评分，重型ML操作分散到低频
+     * 快速分析 - 在后台线程执行
      */
     fun quickAnalyze(bitmap: Bitmap) {
         if (isAnalyzing) return
@@ -111,42 +114,68 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch {
             try {
-                // 构图评分 - 快速规则分析（不用TFLite模型）
-                val score = withContext(Dispatchers.Default) {
-                    compositionAnalyzer.analyzeComposition(bitmap)
-                }
-                _compositionScore.value = score
-                _detectedPattern.value = compositionAnalyzer.detectCompositionPattern(bitmap)
-
-                // 每5次做一次重型分析（场景识别+人脸检测）
-                heavyAnalysisCounter++
-                if (heavyAnalysisCounter >= 5) {
-                    heavyAnalysisCounter = 0
-                    launch(Dispatchers.Default) {
-                        // 场景识别
-                        val scene = sceneAnalyzer.analyzeScene(bitmap)
-                        _currentScene.value = scene
-                        _sceneConfig.value = sceneAnalyzer.getSceneConfig(scene)
-
-                        // 人脸检测
-                        val faces = faceDetector.detectFaces(bitmap)
-                        _faceResults.value = faces
-                        _bestShotScore.value = faceDetector.getBestShotScore(faces)
-
-                        // 自动拍摄判断
-                        if (_autoCaptureEnabled.value && faceDetector.isGoodMoment(faces) && motionTracker.isReadyToCapture()) {
-                            _uiState.value = _uiState.value.copy(shouldAutoCapture = true)
-                        }
+                // 在后台创建缩小的bitmap进行分析
+                val smallBitmap = withContext(Dispatchers.Default) {
+                    val w = bitmap.width.coerceAtMost(160)
+                    val h = bitmap.height.coerceAtMost(120)
+                    try {
+                        Bitmap.createScaledBitmap(bitmap, w, h, true)
+                    } catch (e: Exception) {
+                        null
                     }
                 }
 
-                // 运动追踪 - 轻量级
-                _motionState.value = motionTracker.analyzeFrame(bitmap, null)
+                if (smallBitmap == null) {
+                    isAnalyzing = false
+                    return@launch
+                }
 
-                // 裁剪建议 - 只在显示时计算
-                if (_showCropOverlay.value) {
-                    _cropRecommendations.value = compositionAnalyzer.generateCropRecommendations(bitmap, score)
-                    _angleRecommendations.value = compositionAnalyzer.generateAngleRecommendations(bitmap, score)
+                try {
+                    // 构图评分
+                    val score = withContext(Dispatchers.Default) {
+                        compositionAnalyzer.analyzeComposition(smallBitmap)
+                    }
+                    _compositionScore.value = score
+
+                    withContext(Dispatchers.Default) {
+                        _detectedPattern.value = compositionAnalyzer.detectCompositionPattern(smallBitmap)
+                    }
+
+                    // 每5次做一次重型分析
+                    heavyAnalysisCounter++
+                    if (heavyAnalysisCounter >= 5) {
+                        heavyAnalysisCounter = 0
+                        withContext(Dispatchers.Default) {
+                            val scene = sceneAnalyzer.analyzeScene(smallBitmap)
+                            _currentScene.value = scene
+                            _sceneConfig.value = sceneAnalyzer.getSceneConfig(scene)
+
+                            val faces = faceDetector.detectFaces(smallBitmap)
+                            _faceResults.value = faces
+                            _bestShotScore.value = faceDetector.getBestShotScore(faces)
+
+                            if (_autoCaptureEnabled.value && faceDetector.isGoodMoment(faces) && motionTracker.isReadyToCapture()) {
+                                _uiState.value = _uiState.value.copy(shouldAutoCapture = true)
+                            }
+                        }
+                    }
+
+                    // 运动追踪
+                    withContext(Dispatchers.Default) {
+                        _motionState.value = motionTracker.analyzeFrame(smallBitmap, null)
+                    }
+
+                    // 裁剪建议
+                    if (_showCropOverlay.value) {
+                        withContext(Dispatchers.Default) {
+                            _cropRecommendations.value = compositionAnalyzer.generateCropRecommendations(smallBitmap, score)
+                            _angleRecommendations.value = compositionAnalyzer.generateAngleRecommendations(smallBitmap, score)
+                        }
+                    }
+                } finally {
+                    if (smallBitmap !== bitmap) {
+                        try { smallBitmap.recycle() } catch (_: Exception) {}
+                    }
                 }
             } catch (_: Exception) {}
             finally {
@@ -182,6 +211,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun switchCamera() {
         val surface = _uiState.value.previewSurface ?: return
         cameraManager.switchCamera(surface)
+    }
+
+    fun switchToFocalLength(type: String) {
+        val surface = _uiState.value.previewSurface ?: return
+        cameraManager.switchToFocalLength(type, surface)
     }
 
     fun setPreviewSurface(surface: android.view.Surface) {

@@ -12,22 +12,22 @@ import com.xiaomi.ai_camera.viewmodel.CameraViewModel
 @Composable
 fun CameraPreview(viewModel: CameraViewModel, modifier: Modifier = Modifier) {
     val uiState by viewModel.uiState.collectAsState()
+    var frameCount by remember { mutableIntStateOf(0) }
 
     AndroidView(
         modifier = modifier.fillMaxSize(),
         factory = { ctx ->
-            var frameCount = 0
-
             TextureView(ctx).apply {
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(surface: android.graphics.SurfaceTexture, w: Int, h: Int) {
                         val previewSurface = Surface(surface)
                         viewModel.setPreviewSurface(previewSurface)
                         viewModel.cameraManager.startBackgroundThread()
-                        viewModel.cameraManager.openCamera(
-                            com.xiaomi.ai_camera.camera.XiaomiCameraManager.CAMERA_MAIN,
-                            previewSurface
-                        )
+                        // 扫描所有相机并打开主摄
+                        val cameras = viewModel.cameraManager.scanCameras()
+                        val mainCamera = cameras.find { it.displayName.contains("主摄") }
+                        val cameraId = mainCamera?.id ?: "0"
+                        viewModel.cameraManager.openCamera(cameraId, previewSurface)
                     }
                     override fun onSurfaceTextureSizeChanged(surface: android.graphics.SurfaceTexture, w: Int, h: Int) {}
                     override fun onSurfaceTextureDestroyed(surface: android.graphics.SurfaceTexture): Boolean {
@@ -39,15 +39,12 @@ fun CameraPreview(viewModel: CameraViewModel, modifier: Modifier = Modifier) {
                         if (!uiState.isCameraReady) return
 
                         frameCount++
-                        // 每10帧分析一次，约30fps下每秒3次
-                        if (frameCount % 10 != 0) return
+                        // 每15帧分析一次（约2次/秒）
+                        if (frameCount % 15 != 0) return
 
-                        // 快速构图评分 - 只做轻量级分析
-                        bitmap?.let { fullBm ->
-                            // 缩小到160x120再分析，大幅降低计算量
-                            val small = Bitmap.createScaledBitmap(fullBm, 160, 120, true)
-                            viewModel.quickAnalyze(small)
-                            if (small !== fullBm) small.recycle()
+                        // 不在UI线程做Bitmap操作，直接传递引用
+                        bitmap?.let { bm ->
+                            viewModel.quickAnalyze(bm)
                         }
                     }
                 }
