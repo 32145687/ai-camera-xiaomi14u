@@ -75,11 +75,10 @@ class XiaomiCameraManager(private val context: Context) {
                 val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf()
                 val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) ?: floatArrayOf()
                 val fov = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.let {
-                    // 粗略估算FOV
                     if (it.isNotEmpty()) {
                         val focal = it[0]
                         val sensorWidth = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width ?: 6.17f
-                        2 * kotlin.math.toDegrees(kotlin.math.atan((sensorWidth / 2).toDouble() / focal)).toFloat()
+                        (2.0 * Math.toDegrees(Math.atan((sensorWidth / 2).toDouble() / focal.toDouble()))).toFloat()
                     } else 60f
                 } ?: 60f
 
