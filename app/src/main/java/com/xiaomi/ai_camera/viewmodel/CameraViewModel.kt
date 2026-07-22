@@ -8,10 +8,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.xiaomi.ai_camera.ai.*
 import com.xiaomi.ai_camera.camera.XiaomiCameraManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class CameraViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -20,6 +22,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val sceneAnalyzer = SceneAnalyzer()
     private val faceDetector = FaceDetector()
     private val motionTracker = MotionTracker()
+
+    // 防止并发分析
+    @Volatile private var isAnalyzing = false
+    // 重型分析计数器 - 每5次轻量分析做1次重型
+    private var heavyAnalysisCounter = 0
 
     // 构图评分
     private val _compositionScore = MutableStateFlow(
@@ -95,42 +102,56 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * 分析预览帧 - 核心AI分析
+     * 快速分析 - 每10帧调用一次，bitmap已缩小到160x120
+     * 只做构图评分，重型ML操作分散到低频
      */
-    fun analyzePreviewFrame(bitmap: Bitmap) {
+    fun quickAnalyze(bitmap: Bitmap) {
+        if (isAnalyzing) return
+        isAnalyzing = true
+
         viewModelScope.launch {
             try {
-                // 1. 构图分析 (最重要)
-                val score = compositionAnalyzer.analyzeComposition(bitmap)
+                // 构图评分 - 快速规则分析（不用TFLite模型）
+                val score = withContext(Dispatchers.Default) {
+                    compositionAnalyzer.analyzeComposition(bitmap)
+                }
                 _compositionScore.value = score
-
-                // 2. 检测构图模式
                 _detectedPattern.value = compositionAnalyzer.detectCompositionPattern(bitmap)
 
-                // 3. 生成裁剪建议
-                _cropRecommendations.value = compositionAnalyzer.generateCropRecommendations(bitmap, score)
+                // 每5次做一次重型分析（场景识别+人脸检测）
+                heavyAnalysisCounter++
+                if (heavyAnalysisCounter >= 5) {
+                    heavyAnalysisCounter = 0
+                    launch(Dispatchers.Default) {
+                        // 场景识别
+                        val scene = sceneAnalyzer.analyzeScene(bitmap)
+                        _currentScene.value = scene
+                        _sceneConfig.value = sceneAnalyzer.getSceneConfig(scene)
 
-                // 4. 生成角度建议
-                _angleRecommendations.value = compositionAnalyzer.generateAngleRecommendations(bitmap, score)
+                        // 人脸检测
+                        val faces = faceDetector.detectFaces(bitmap)
+                        _faceResults.value = faces
+                        _bestShotScore.value = faceDetector.getBestShotScore(faces)
 
-                // 5. 场景识别
-                val scene = sceneAnalyzer.analyzeScene(bitmap)
-                _currentScene.value = scene
-                _sceneConfig.value = sceneAnalyzer.getSceneConfig(scene)
+                        // 自动拍摄判断
+                        if (_autoCaptureEnabled.value && faceDetector.isGoodMoment(faces) && motionTracker.isReadyToCapture()) {
+                            _uiState.value = _uiState.value.copy(shouldAutoCapture = true)
+                        }
+                    }
+                }
 
-                // 6. 人脸检测
-                val faces = faceDetector.detectFaces(bitmap)
-                _faceResults.value = faces
-                _bestShotScore.value = faceDetector.getBestShotScore(faces)
-
-                // 7. 运动追踪
+                // 运动追踪 - 轻量级
                 _motionState.value = motionTracker.analyzeFrame(bitmap, null)
 
-                // 8. 自动拍摄判断
-                if (_autoCaptureEnabled.value && faceDetector.isGoodMoment(faces) && motionTracker.isReadyToCapture()) {
-                    _uiState.value = _uiState.value.copy(shouldAutoCapture = true)
+                // 裁剪建议 - 只在显示时计算
+                if (_showCropOverlay.value) {
+                    _cropRecommendations.value = compositionAnalyzer.generateCropRecommendations(bitmap, score)
+                    _angleRecommendations.value = compositionAnalyzer.generateAngleRecommendations(bitmap, score)
                 }
             } catch (_: Exception) {}
+            finally {
+                isAnalyzing = false
+            }
         }
     }
 

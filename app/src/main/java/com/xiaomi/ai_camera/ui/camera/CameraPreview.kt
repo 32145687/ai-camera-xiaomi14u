@@ -1,5 +1,6 @@
 package com.xiaomi.ai_camera.ui.camera
 
+import android.graphics.Bitmap
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,8 @@ fun CameraPreview(viewModel: CameraViewModel, modifier: Modifier = Modifier) {
     AndroidView(
         modifier = modifier.fillMaxSize(),
         factory = { ctx ->
+            var frameCount = 0
+
             TextureView(ctx).apply {
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(surface: android.graphics.SurfaceTexture, w: Int, h: Int) {
@@ -33,8 +36,18 @@ fun CameraPreview(viewModel: CameraViewModel, modifier: Modifier = Modifier) {
                         return true
                     }
                     override fun onSurfaceTextureUpdated(surface: android.graphics.SurfaceTexture) {
-                        if (uiState.isCameraReady) {
-                            bitmap?.let { viewModel.analyzePreviewFrame(it) }
+                        if (!uiState.isCameraReady) return
+
+                        frameCount++
+                        // 每10帧分析一次，约30fps下每秒3次
+                        if (frameCount % 10 != 0) return
+
+                        // 快速构图评分 - 只做轻量级分析
+                        bitmap?.let { fullBm ->
+                            // 缩小到160x120再分析，大幅降低计算量
+                            val small = Bitmap.createScaledBitmap(fullBm, 160, 120, true)
+                            viewModel.quickAnalyze(small)
+                            if (small !== fullBm) small.recycle()
                         }
                     }
                 }
