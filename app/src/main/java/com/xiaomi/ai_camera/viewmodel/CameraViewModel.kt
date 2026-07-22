@@ -89,6 +89,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedCrop = MutableStateFlow<RectF?>(null)
     val selectedCrop: StateFlow<RectF?> = _selectedCrop.asStateFlow()
 
+    // 拍照保存路径
+    private val _lastPhotoPath = MutableStateFlow<String?>(null)
+    val lastPhotoPath: StateFlow<String?> = _lastPhotoPath.asStateFlow()
+
+    // 拍照状态
+    private val _isTakingPhoto = MutableStateFlow(false)
+    val isTakingPhoto: StateFlow<Boolean> = _isTakingPhoto.asStateFlow()
+
     init {
         cameraManager.setCallback(object : XiaomiCameraManager.CameraCallback {
             override fun onCameraOpened(cameraId: String) {
@@ -102,7 +110,21 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             override fun onCameraError(error: String) {
                 _uiState.value = _uiState.value.copy(errorMessage = error)
             }
+            override fun onPhotoSaved(filePath: String) {
+                _lastPhotoPath.value = filePath
+                _isTakingPhoto.value = false
+                _uiState.value = _uiState.value.copy(errorMessage = "照片已保存到相册")
+            }
         })
+    }
+
+    /**
+     * 拍照
+     */
+    fun takePhoto() {
+        if (_isTakingPhoto.value) return
+        _isTakingPhoto.value = true
+        cameraManager.takePhoto()
     }
 
     /**

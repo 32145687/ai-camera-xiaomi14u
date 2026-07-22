@@ -23,10 +23,14 @@ fun CameraPreview(viewModel: CameraViewModel, modifier: Modifier = Modifier) {
                         val previewSurface = Surface(surface)
                         viewModel.setPreviewSurface(previewSurface)
                         viewModel.cameraManager.startBackgroundThread()
-                        // 扫描所有相机并打开主摄
-                        val cameras = viewModel.cameraManager.scanCameras()
-                        val mainCamera = cameras.find { it.displayName.contains("主摄") }
-                        val cameraId = mainCamera?.id ?: "0"
+
+                        // 先扫描相机，然后打开主摄
+                        viewModel.cameraManager.scanCameras()
+                        val cameras = viewModel.cameraManager.getAvailableCameras()
+                        val mainCamera = cameras.find {
+                            it.displayName.contains("主摄") || it.displayName.contains("23mm")
+                        }
+                        val cameraId = mainCamera?.id ?: cameras.firstOrNull()?.id ?: "0"
                         viewModel.cameraManager.openCamera(cameraId, previewSurface)
                     }
                     override fun onSurfaceTextureSizeChanged(surface: android.graphics.SurfaceTexture, w: Int, h: Int) {}
@@ -42,7 +46,7 @@ fun CameraPreview(viewModel: CameraViewModel, modifier: Modifier = Modifier) {
                         // 每15帧分析一次（约2次/秒）
                         if (frameCount % 15 != 0) return
 
-                        // 不在UI线程做Bitmap操作，直接传递引用
+                        // 在后台线程做分析
                         bitmap?.let { bm ->
                             viewModel.quickAnalyze(bm)
                         }

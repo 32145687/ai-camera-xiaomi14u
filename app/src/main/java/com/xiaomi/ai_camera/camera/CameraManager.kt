@@ -1,18 +1,23 @@
 package com.xiaomi.ai_camera.camera
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
+import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
-import android.util.Range
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Size
 import android.view.Surface
-import kotlin.math.abs
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
 
 /**
  * 小米14U专用Camera2管理器
- * 动态检测四摄，支持无级可变光圈控制
+ * 支持四摄切换、拍照、可变光圈控制
  */
 class XiaomiCameraManager(private val context: Context) {
 
@@ -22,11 +27,13 @@ class XiaomiCameraManager(private val context: Context) {
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
     private var currentCameraId = ""
+    private var previewSurface: Surface? = null
+    private var imageReader: ImageReader? = null
 
-    // 动态检测到的相机信息
+    // 相机信息
     data class CameraInfo(
         val id: String,
-        val facing: Int,            // CameraCharacteristics.LENS_FACING
+        val facing: Int,
         val focalLengths: FloatArray,
         val apertures: FloatArray,
         val fovDegrees: Float,
@@ -35,15 +42,11 @@ class XiaomiCameraManager(private val context: Context) {
 
     private val availableCameras = mutableListOf<CameraInfo>()
 
-    companion object {
-        const val LENS_FACING_BACK = CameraCharacteristics.LENS_FACING_BACK
-        const val LENS_FACING_FRONT = CameraCharacteristics.LENS_FACING_FRONT
-    }
-
     interface CameraCallback {
         fun onCameraOpened(cameraId: String)
         fun onCameraClosed()
         fun onCameraError(error: String)
+        fun onPhotoSaved(filePath: String)
     }
 
     private var callback: CameraCallback? = null
@@ -92,13 +95,9 @@ class XiaomiCameraManager(private val context: Context) {
         return availableCameras.toList()
     }
 
-    /**
-     * 根据焦距和FOV识别摄像头类型
-     */
     private fun identifyCamera(id: String, facing: Int, focalLengths: FloatArray, fov: Float): String {
-        if (facing == LENS_FACING_FRONT) return "前置"
+        if (facing == CameraCharacteristics.LENS_FACING_FRONT) return "前置"
         val mainFocal = focalLengths.firstOrNull() ?: 0f
-
         return when {
             mainFocal < 2.5f -> "超广角 12mm"
             mainFocal in 5.0f..7.0f -> "主摄 23mm"
@@ -115,39 +114,31 @@ class XiaomiCameraManager(private val context: Context) {
         return availableCameras.toList()
     }
 
-    fun getAvailableCameraIds(): List<String> = cameraManager.cameraIdList.toList()
-
     fun getCurrentCameraId(): String = currentCameraId
 
-    fun getCameraInfo(cameraId: String): CameraInfo? {
-        return availableCameras.find { it.id == cameraId }
-    }
+    fun getCameraInfo(cameraId: String): CameraInfo? = availableCameras.find { it.id == cameraId }
 
-    fun getCameraCharacteristics(cameraId: String): CameraCharacteristics =
-        cameraManager.getCameraCharacteristics(cameraId)
+    fun getCameraDisplayName(cameraId: String): String = getCameraInfo(cameraId)?.displayName ?: "相机 $cameraId"
 
     fun isVariableApertureSupported(cameraId: String): Boolean {
         return try {
-            val chars = getCameraCharacteristics(cameraId)
+            val chars = cameraManager.getCameraCharacteristics(cameraId)
             val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
             apertures != null && apertures.size > 1
         } catch (e: Exception) { false }
     }
 
-    fun getApertureRange(cameraId: String): FloatArray? {
-        return try {
-            getCameraCharacteristics(cameraId).get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
-        } catch (e: Exception) { null }
-    }
-
     fun openCamera(cameraId: String, surface: Surface) {
         currentCameraId = cameraId
+        previewSurface = surface
         try {
-            // 检查权限
             if (context.checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 callback?.onCameraError("没有相机权限")
                 return
             }
+
+            // 创建ImageReader用于拍照
+            imageReader = ImageReader.newInstance(1920, 1080, android.graphics.ImageFormat.JPEG, 1)
 
             cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
@@ -178,7 +169,11 @@ class XiaomiCameraManager(private val context: Context) {
     private fun createPreviewSession(surface: Surface) {
         try {
             val device = cameraDevice ?: return
-            device.createCaptureSession(listOf(surface),
+            val reader = imageReader ?: return
+
+            // 预览 + 拍照两个输出
+            val surfaces = listOf(surface, reader.surface)
+            device.createCaptureSession(surfaces,
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
                         captureSession = session
@@ -202,18 +197,67 @@ class XiaomiCameraManager(private val context: Context) {
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                // 尝试启用可变光圈
-                try {
-                    val chars = device.id.let { cameraManager.getCameraCharacteristics(it) }
-                    val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
-                    if (apertures != null && apertures.size > 1) {
-                        set(CaptureRequest.LENS_APERTURE, apertures[0])
-                    }
-                } catch (_: Exception) {}
             }
             builder?.build()?.let { captureSession?.setRepeatingRequest(it, null, cameraHandler) }
         } catch (e: CameraAccessException) {
             callback?.onCameraError("预览失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 拍照并保存
+     */
+    fun takePhoto() {
+        val device = cameraDevice ?: return
+        val reader = imageReader ?: return
+        val session = captureSession ?: return
+
+        try {
+            val captureBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)?.apply {
+                addTarget(reader.surface)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                set(CaptureRequest.JPEG_ORIENTATION, 0)
+            }
+
+            // 设置拍照回调
+            reader.setOnImageAvailableListener({ reader ->
+                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                try {
+                    val buffer = image.planes[0].buffer
+                    val bytes = ByteArray(buffer.remaining())
+                    buffer.get(bytes)
+
+                    // 保存到相册
+                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                    val fileName = "AI_Camera_$timestamp.jpg"
+
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/AI_Camera")
+                    }
+
+                    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    uri?.let {
+                        context.contentResolver.openOutputStream(it)?.use { os ->
+                            os.write(bytes)
+                        }
+                        callback?.onPhotoSaved(it.toString())
+                    }
+                } catch (e: Exception) {
+                    callback?.onCameraError("保存照片失败: ${e.message}")
+                } finally {
+                    image.close()
+                }
+            }, cameraHandler)
+
+            captureBuilder?.build()?.let { captureRequest ->
+                session.capture(captureRequest, null, cameraHandler)
+            }
+        } catch (e: CameraAccessException) {
+            callback?.onCameraError("拍照失败: ${e.message}")
         }
     }
 
@@ -242,7 +286,7 @@ class XiaomiCameraManager(private val context: Context) {
     }
 
     /**
-     * 切换到下一个相机
+     * 切换到下一个相机 - 修复Surface复用问题
      */
     fun switchCamera(surface: Surface) {
         val cameras = getAvailableCameras()
@@ -250,12 +294,23 @@ class XiaomiCameraManager(private val context: Context) {
             scanCameras()
             return
         }
-        closeCamera()
 
         val currentIndex = cameras.indexOfFirst { it.id == currentCameraId }
         val nextIndex = if (currentIndex < 0) 0 else (currentIndex + 1) % cameras.size
         val nextCamera = cameras[nextIndex]
-        openCamera(nextCamera.id, surface)
+
+        // 先关闭当前相机
+        try {
+            captureSession?.close()
+            captureSession = null
+            cameraDevice?.close()
+            cameraDevice = null
+        } catch (_: Exception) {}
+
+        // 稍等一下让相机释放
+        cameraHandler?.postDelayed({
+            openCamera(nextCamera.id, surface)
+        }, 200)
     }
 
     /**
@@ -264,9 +319,17 @@ class XiaomiCameraManager(private val context: Context) {
     fun switchToFocalLength(focalLengthType: String, surface: Surface) {
         val cameras = getAvailableCameras()
         val target = cameras.find { it.displayName.contains(focalLengthType) }
-        if (target != null) {
-            closeCamera()
-            openCamera(target.id, surface)
+        if (target != null && target.id != currentCameraId) {
+            try {
+                captureSession?.close()
+                captureSession = null
+                cameraDevice?.close()
+                cameraDevice = null
+            } catch (_: Exception) {}
+
+            cameraHandler?.postDelayed({
+                openCamera(target.id, surface)
+            }, 200)
         }
     }
 
@@ -276,14 +339,10 @@ class XiaomiCameraManager(private val context: Context) {
             captureSession = null
             cameraDevice?.close()
             cameraDevice = null
+            imageReader?.close()
+            imageReader = null
         } catch (_: Exception) {}
     }
 
-    fun getCameraDisplayName(cameraId: String): String {
-        return getCameraInfo(cameraId)?.displayName ?: "相机 $cameraId"
-    }
-
-    fun getCameraCount(): Int {
-        return cameraManager.cameraIdList.size
-    }
+    fun getCameraCount(): Int = cameraManager.cameraIdList.size
 }

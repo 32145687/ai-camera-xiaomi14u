@@ -71,7 +71,7 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
         CameraControls(
             viewModel = viewModel,
             onCaptureClick = {
-                Toast.makeText(context, "拍照功能开发中...", Toast.LENGTH_SHORT).show()
+                viewModel.takePhoto()
             },
             modifier = Modifier
                 .fillMaxWidth()
