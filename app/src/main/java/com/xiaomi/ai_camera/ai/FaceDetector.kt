@@ -68,4 +68,8 @@ class FaceDetector {
     }
 
     fun isGoodMoment(faces: List<FaceResult>): Boolean = getBestShotScore(faces) > 70
+
+    fun close() {
+        try { detector.close() } catch (_: Exception) {}
+    }
 }

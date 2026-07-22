@@ -104,12 +104,26 @@ class CompositionAnalyzer(private val context: Context) {
      * 节流由调用方（CameraViewModel.quickAnalyze）控制
      */
     fun analyzeComposition(bitmap: Bitmap): CompositionScore {
-        // 尝试使用深度学习模型
         val modelScore = analyzeWithModel(bitmap)
         if (modelScore != null) return modelScore
-
-        // 回退到基于规则的分析
         return analyzeWithRules(bitmap)
+    }
+
+    /**
+     * 分析构图并返回详细结果（避免重复计算）
+     */
+    data class DetailedResult(val score: CompositionScore, val pattern: CompositionPattern)
+
+    fun analyzeCompositionWithDetails(bitmap: Bitmap): DetailedResult {
+        val score = analyzeComposition(bitmap)
+        // 用已计算的分数判断模式，避免重复像素分析
+        val pattern = when {
+            score.symmetryScore > 55 -> CompositionPattern.SYMMETRY
+            score.balanceScore > 50 -> CompositionPattern.CENTER
+            score.ruleOfThirdsScore > 45 -> CompositionPattern.RULE_OF_THIRDS
+            else -> CompositionPattern.RULE_OF_THIRDS
+        }
+        return DetailedResult(score, pattern)
     }
 
     /**
@@ -118,9 +132,9 @@ class CompositionAnalyzer(private val context: Context) {
     private fun analyzeWithModel(bitmap: Bitmap): CompositionScore? {
         val interp = interpreter ?: return null
 
+        var resized: Bitmap? = null
         return try {
-            // 预处理图片
-            val resized = Bitmap.createScaledBitmap(bitmap, modelInputSize, modelInputSize, true)
+            resized = Bitmap.createScaledBitmap(bitmap, modelInputSize, modelInputSize, true)
             val inputBuffer = preprocessImage(resized)
 
             // 准备输出缓冲区 - 8个评分维度
@@ -146,6 +160,8 @@ class CompositionAnalyzer(private val context: Context) {
             )
         } catch (e: Exception) {
             null
+        } finally {
+            resized?.recycle()
         }
     }
 

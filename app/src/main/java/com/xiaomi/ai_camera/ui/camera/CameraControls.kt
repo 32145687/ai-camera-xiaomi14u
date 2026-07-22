@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaomi.ai_camera.ai.CompositionAnalyzer
+import com.xiaomi.ai_camera.camera.XiaomiCameraManager
 import com.xiaomi.ai_camera.viewmodel.CameraViewModel
 
 @Composable
@@ -37,6 +38,8 @@ fun CameraControls(
     val showCropOverlay by viewModel.showCropOverlay.collectAsState()
     val availableCameras by viewModel.availableCameras.collectAsState()
     val showCompositionOverlay by viewModel.showCompositionOverlay.collectAsState()
+    val flashMode by viewModel.flashMode.collectAsState()
+    val isTakingPhoto by viewModel.isTakingPhoto.collectAsState()
 
     // 焦段列表
     val allFocalLengths = listOf("超广角", "主摄", "长焦", "潜望")
@@ -154,15 +157,15 @@ fun CameraControls(
                 modifier = Modifier
                     .size(72.dp)
                     .clip(CircleShape)
-                    .background(Color.White)
-                    .clickable(onClick = onCaptureClick),
+                    .background(if (isTakingPhoto) Color.Gray else Color.White)
+                    .clickable(enabled = !isTakingPhoto) { onCaptureClick() },
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
                         .size(60.dp)
                         .clip(CircleShape)
-                        .background(Color.White)
+                        .background(if (isTakingPhoto) Color.LightGray else Color.White)
                 )
             }
 
@@ -181,19 +184,44 @@ fun CameraControls(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
+            // 前后切换
+            ControlButton(
+                icon = Icons.Filled.Cameraswitch,
+                label = "翻转",
+                onClick = { viewModel.switchToFrontBack() }
+            )
+
+            // 闪光灯
+            ControlButton(
+                icon = when (flashMode) {
+                    XiaomiCameraManager.FlashMode.AUTO -> Icons.Filled.FlashAuto
+                    XiaomiCameraManager.FlashMode.ON -> Icons.Filled.FlashOn
+                    XiaomiCameraManager.FlashMode.OFF -> Icons.Filled.FlashOff
+                    XiaomiCameraManager.FlashMode.TORCH -> Icons.Filled.FlashOn
+                },
+                label = when (flashMode) {
+                    XiaomiCameraManager.FlashMode.AUTO -> "自动"
+                    XiaomiCameraManager.FlashMode.ON -> "开启"
+                    XiaomiCameraManager.FlashMode.OFF -> "关闭"
+                    XiaomiCameraManager.FlashMode.TORCH -> "常亮"
+                },
+                isActive = flashMode != XiaomiCameraManager.FlashMode.AUTO,
+                onClick = { viewModel.cycleFlashMode() }
+            )
+
             ControlButton(
                 icon = Icons.Filled.AutoAwesome,
                 label = "AI抓拍",
                 isActive = autoCapture,
                 onClick = { viewModel.toggleAutoCapture() }
             )
+
             ControlButton(
                 icon = Icons.Filled.Crop,
                 label = "裁剪",
                 isActive = showCropOverlay,
                 onClick = { viewModel.toggleCropOverlay() }
             )
-            ControlButton(icon = Icons.Filled.FlashAuto, label = "闪光", onClick = {})
         }
 
         // === 裁剪建议列表 ===

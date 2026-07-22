@@ -59,4 +59,8 @@ class SceneAnalyzer {
         SceneType.INDOOR -> SceneConfig(scene, 2.0f, 800, 0, 1.0f, "室内：平衡光线")
         SceneType.UNKNOWN -> SceneConfig(scene, 2.8f, 400, 0, 1.0f, "自动模式")
     }
+
+    fun close() {
+        try { labeler.close() } catch (_: Exception) {}
+    }
 }
