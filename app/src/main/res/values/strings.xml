@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI构图相机</string>
+    <string name="camera_permission_required">需要相机权限才能使用AI构图功能</string>
+    <string name="grant_permission">授予权限</string>
+</resources>
